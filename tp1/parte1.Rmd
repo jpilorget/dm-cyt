@@ -1,0 +1,217 @@
+---
+title: "Trabajo Práctico 1 - Parte 1"
+author: "Pilorget, Santoro y Veneziano"
+date: "12 de septiembre de 2017"
+output: word_document
+---
+
+
+###Introducción  
+El presente trabajo corresponde al primer trabajo práctico de la materia *Data Mining y Knowledge Discovery en Ciencia y Tecnología*, del primer año de la Maestría en Explotación de Datos y Descubrimiento del Conocimiento.  
+
+El dataset a utilizar consiste en un conjunto de 3462 galaxias captadas en una región del cielo y unas 64 variables que incluyen estimadores del tamaño de la galaxia, de su corrimiento al rojo y datos y flujos y magnitudes absolutas obtenidas a diferentes longitudes de onda.  Se realizó un análisis exploratorio de los datos, respondiendo a una serie de tareas planteadas por los docentes a cargo. El trabajo se resolvió completamente en el lenguaje de programación R.  
+
+###Tarea 1  
+La primer tarea consistió en la identificación de la variable con una anomalía en el tipo.  
+```{r cache=TRUE, results="hide", echo=F}
+glx <- read.csv("http://astrostatistics.psu.edu/datasets/COMBO17.csv", header = T, stringsAsFactors = F)
+str(glx)
+```
+La salida puede verse en "Salida 1", del apartado "Tarea 1" en el Apéndice del trabajo. En "Salida 2" se presenta una resolución simplificada.  
+
+
+Puede observarse que la variable *e.W420FE* es de tipo *character*. Tanto ésta como la variable VFD se encuentran en notación científica, pero la primera fue leída como cadena de caracteres.  
+Inspeccionando la variable se observa que algunos de los valores poseen un número y un espacio previo a la notación científica. Por ejemplo: 
+
+```{r }
+glx$e.W420FE[421]
+```
+Esto es lo que impide la conversión directa a número de algunos valores. Por este motivo se eliminará el número y el espacio previo con la función **strsplit()** y posteriormente se convertirá a valor numérico mediante la función **as.numeric()**. El número eliminado corresponde al último dígito decimal de la variable anterior en el conjunto de datos, *W420FE* . El código utilizado se presenta a continuación:
+  
+```{r}
+glx$e.W420FE<- as.numeric(sapply(strsplit(glx$e.W420FE, " "),tail,1))
+```
+
+  
+###Tarea 2  
+Se requiere encontrar aquellos casos que presenten valores extremos en las variables de interés, que son las siguientes:  
+```{r, echo = F}
+vars_interes <- c("Nr", "Rmag", "e.Rmag", "ApDRmag", "Mcz", "UjMAG", "BjMAG", "VjMAG", "usMAG", "gsMAG", "rsMAG", "UbMAG", "BbMAG", "VnMAG", "S280MAG")
+glx_interes <- glx[, vars_interes]
+print(vars_interes)
+```
+  
+Para analizar las variables de interés se las graficó en un boxplot, resaltando en rojo el valor presentado como ejemplo de valor extremo para cada una. Como consideración previa se destaca la advertencia de eliminación de casos con valores NA por parte de *R* para confeccionar el gráfico. Esta cuestión será objeto de tratamiento en el próximo apartado.
+  
+```{r cache=TRUE, tidy=TRUE, fig.height=15, fig.width=20, echo = F}
+library(ggplot2)
+library(gridExtra)
+library(reshape2)
+glx_interes_melt <- melt(glx_interes[,-1],id.vars = NULL)
+ggplot(glx_interes_melt,aes(variable,value)) + geom_boxplot() + theme(axis.text.x = element_text(angle = 90, hjust = 1),legend.position="none") + xlab("") + ylab("") + geom_point(aes(x="BjMAG", y=max(glx_interes$BjMAG), colour ='red',size=2))
+```
+  
+Si se tiene en cuenta el tamaño de la muestra y la gran cantidad de potenciales valores atípicos indicados por el gráfico, podría considerase que el criterio de las cercas de Tukey usado por el boxplot no sea el óptimo para el presente problema.
+
+
+En el apéndice, en la "Salida 1" del apartado "Tarea 2" se encuentran una serie de gráficos de dispersión en los que se presentan la magnitud de cada variable de interés contra la magnitud de esa variable normalizada por la magnitud absoluta a 280 nm. En ellos pueden ya observarse algunos valores atípicos que resaltan. Por ejemplo, el punto en la extrema izquierda de la variable ApDRmag.  
+
+
+Para hallar estos posibles valores se estandarizaron las variables utilizando la mediana y la desviación absoluta mediana, dada su menor sensibilidad a valores atípicos en comparación a la media y el desvío estandar. A los fines de este trabajo, y para evitar una eliminación masiva de casos, se buscó fijar un umbral para considerar a las observaciones como realmente extremas.  
+
+
+A continuación se presenta un gráfico con los valores de posibles umbrales (cantidad de desviaciones absolutas medianas con respecto a la mediana) contra la cantidad de valores atípicos registrados.  
+
+```{r, cache=T, fig.width=20,fig.height=10, tidy=TRUE, echo = F}
+umbrales <- seq(1,10,0.5)
+outliers <- data.frame(umbral=umbrales)
+for (i in umbrales){
+  outliers[outliers$umbral==i,2] <- length(unique(unlist(sapply(glx_interes[,-1],function(x) which (abs(x-median(x,na.rm=T))/mad(x,na.rm=T)>i))  )))
+}
+qplot(umbral,V2/dim(glx)[1]*100,data=outliers,size=1.5) + geom_line(size=1.1) + xlab("Umbral") + ylab("Porcentaje de Outliers") + theme(axis.text=element_text(size=40), axis.title=element_text(size=40), legend.position="none")
+```
+  
+El gráfico parece estabilizarse a partir del valor de umbral 5.
+A continuación se presenta el mismo gráfico pero tomando solo los valores de umbral mayores o iguales a 5.  
+
+```{r, cache=T, fig.width=20,fig.height=10, tidy=TRUE, echo = F}
+qplot(umbral,V2/dim(glx)[1]*100,data=tail(outliers,11),size=1.5) + geom_line(size=1.1) + xlab("Umbral") + ylab("Porcentaje de Outliers") + theme(axis.text=element_text(size=40),axis.title=element_text(size=40), legend.position="none")
+```
+  
+El valor de umbral 6 es el primero que elimina menos del 1% de los valores extremos. Por lo tanto, a los fines de este trabajo se consideró como valor atípico (y, en consecuencia, se eliminó) a aquellos valores que se encontraban a más de 6 desviaciones absolutas medianas con respecto a la mediana.  
+En la "Salida 2" del apartado "Tarea 2" del apéndice se presenta una tabla con la cantidad de valores atípicos que cada umbral eliminaría.  
+
+Para visualizar de manera clara la distribución de los valores extremos en los registros que poseen al menos uno se decidió graficar un histograma donde se observara, para cada registro, la cantidad de variables con valores extremos.
+
+```{r, cache= T, echo = F, fig.width=20,fig.height=10, tidy=TRUE}
+out <- sapply(glx_interes, function(x) which (abs(x-median(x,na.rm=T))/mad(x,na.rm=T)>6))
+out <- data.frame(table(unlist(out)))
+out <- out[order(out$Freq),]
+out$Var1 <- as.character(out$Var1)
+lev <- out[order(out$Freq),]$Var1
+out$Var1 <- factor(out$Var1, levels = lev)
+ggplot(out,aes(x=Var1,y=Freq)) + geom_bar(stat = "identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1)) +  scale_y_discrete(limits=c(1:10))
+```
+
+Lo que se observa en el histograma es un grupo de registros con una sola variable que registra valores extremos. Asimismo, se aprecia que un conjunto de galaxias parece ser consistentemente extrema en la mayoría de sus variables, lo que podría indicar que dicho valor extremo debe permanecer en la muestra. A los fines del presente trabajo y, entendiendo que quizás sean objetos de inusual intensidad o tamaño, los registros identificados con valores extremos serán descartados del conjunto de datos.
+
+
+Finalmente, los casos eliminados fueron los siguientes:  
+```{r, echo = F}
+casos_eliminar <- sort(unique(unlist(sapply(glx_interes[,-1],function(x) which (abs(x-median(x,na.rm=T))/mad(x,na.rm=T)>6)))))
+casos_eliminar
+glx_eliminados <- glx_interes[casos_eliminar,]
+glx <- glx_interes[-casos_eliminar,]
+```
+  
+En la "Salida 3" del apartado "Tarea 2" del apéndice pueden verse estos casos en detalle.
+  
+  
+###Tarea 3
+La tarea 3 consistió en la detección de las variables que presenten datos faltantes y de aquellos casos con datos faltantes en alguna variable de interés.
+Las variables con datos faltantes son:  
+```{r, echo = F}
+vals_faltantes <- apply(glx_interes, 2, anyNA)
+vals_faltantes
+```
+  
+Los casos con valores faltantes (y que por lo tanto fueron eliminados) son:  
+```{r, echo = F}
+which((apply(glx_interes, 1, anyNA)))
+glx_faltantes <- glx_interes[which((apply(glx_interes, 1, anyNA))),]
+glx_completos <- glx_interes[complete.cases(glx_interes) == T,]
+```
+
+  
+###Tarea 4
+La última tarea consistió en estudiar las correlaciones entre las variables espectrales sin normalizar y, por otra parte, entre las variables normalizadas por la magnitud absoluta en reposo.  
+A continuación se presenta un correlograma de las variables sin normalizar:  
+  
+```{r, cache=T,fig.width=15,fig.height=15, tidy=TRUE, echo = F}
+library(corrplot)
+cex.before <- par("cex")
+par(cex = 2.7)
+glx_espectrales <- glx_completos[, 6:15]
+corrplot.mixed(cor(glx_espectrales))
+par(cex=cex.before)
+```
+
+Se observa como las variables tienen alta correlación positiva entre sí, siendo la más pequeña de `r min(cor(glx_espectrales))` .
+Con respecto a las variables normalizadas, a continuación se presenta el correlograma correspondiente:  
+  
+```{r, cache=T,fig.width=15,fig.height=15, tidy=TRUE, echo = F}
+library(corrplot)
+par(cex = 2.7)
+glx_espectrales_norm <- glx_completos[, 6:14] - glx_completos[,15]
+corrplot.mixed(cor(glx_espectrales_norm))
+par(cex=cex.before)
+```
+  
+Todas las correlaciones son, nuevamente, positivas y bastante altas.    
+Se observa como las correlaciones entre las variables normalizadas son menores a las correlaciones entre las variables sin normalizar. En este caso la correlación mínima es de `r min(cor(glx_espectrales_norm))`.  
+Un ejemplo claro es la variable BjMAG, cuyas correlaciones con otras variables son considerablemente menores en todos los casos.  Además de que la variabilidad es mayor, los índices de correlacion de las variables normalizadas presentan una desviación estándar de `r sd(cor(glx_espectrales_norm))` contra una desviación estándar de `r sd(cor(glx_espectrales))` de las correlaciones de las variables sin normalizar.    
+  
+\pagebreak
+
+
+###Apéndice
+  
+####Tarea 1  
+#####Salida 1  
+```{r}
+str(glx)
+```
+  
+#####Salida 2  
+Se encuentran solo el identificador y la variable anómala.
+```{r}
+clases <- sapply(glx,class)
+clases[clases != "numeric"]
+```
+
+***
+
+####Tarea 2  
+#####Salida 1  
+```{r, cache=TRUE}
+#Primer grid
+p1 <- qplot(UbMAG, S280MAG-UbMAG, data = glx) 
+p2 <- qplot(VnMAG, S280MAG-VnMAG, data = glx) 
+p3 <- qplot(BbMAG, S280MAG-BbMAG, data = glx) 
+p4 <- qplot(rsMAG, S280MAG-rsMAG, data = glx) 
+grid.arrange(p1, p2, p3, p4, ncol=2)
+
+#Segundo grid
+p1 <- qplot(UjMAG, S280MAG-UjMAG, data = glx) 
+p2 <- qplot(VjMAG, S280MAG-VjMAG, data = glx) 
+p3 <- qplot(usMAG, S280MAG-usMAG, data = glx) 
+p4 <- qplot(gsMAG, S280MAG-gsMAG, data = glx) 
+grid.arrange(p1, p2, p3, p4, ncol=2)
+
+#Tercer grid
+p1 <- qplot(Rmag, S280MAG-Rmag, data = glx) 
+p2 <- qplot(ApDRmag, S280MAG-ApDRmag, data = glx) 
+p3 <- qplot(Mcz, S280MAG-Mcz, data = glx) 
+p4 <- qplot(gsMAG, S280MAG-gsMAG, data = glx) 
+grid.arrange(p1, p2, p3, p4, ncol=2)
+```
+  
+#####Salida 2
+```{r, cache=T}
+umbrales <- seq(1,10,0.5)
+outliers <- data.frame(umbral=umbrales)
+for (i in umbrales){
+  outliers[outliers$umbral==i,2] <- length(unique(unlist(sapply(glx_interes[,-1],function(x) which (abs(x-median(x,na.rm=T))/mad(x,na.rm=T)>i))  )))
+}
+outliers[,3] <- round(outliers[,2]/dim(glx)[1]*100,2)
+names(outliers) <- c("Umbral","Casos","Porcentaje")
+outliers
+```
+
+#####Salida 3
+```{r}
+glx_eliminados
+```
+  
+  
+***
